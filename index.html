@@ -460,6 +460,17 @@ let savedRange = null;
 textInput.addEventListener('mouseup', saveSelectionRange);
 textInput.addEventListener('touchend', saveSelectionRange);
 textInput.addEventListener('keyup', saveSelectionRange);
+/* iOS text selection (drag handles / magnifier) doesn't reliably fire
+   mouseup/touchend on the element itself, so selectionchange is the
+   one event guaranteed to fire regardless of how the selection was made. */
+document.addEventListener('selectionchange', () => {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  if (textInput.contains(range.commonAncestorContainer)) {
+    savedRange = range.cloneRange();
+  }
+});
 function saveSelectionRange() {
   const sel = window.getSelection();
   if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
