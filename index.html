@@ -496,14 +496,14 @@ function stripStyleProp(node, prop) {
    size can each be changed independently, any number of times, without
    needing Clear Formatting in between. */
 function applyStyleToSelection(cssProp, cssValue) {
-  textInput.focus();
-  const sel = window.getSelection();
-  if (savedRange) {
-    sel.removeAllRanges();
-    sel.addRange(savedRange);
-  }
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
+  if (!savedRange || savedRange.collapsed) return;
+  // Work directly on the saved Range object rather than restoring it into
+  // window.getSelection() first — on iOS, tapping a button outside the
+  // editor collapses the live selection before our click handler even
+  // runs, and re-focusing + re-adding the range back is unreliable timing-
+  // wise. Range.extractContents()/insertNode() don't need to be part of
+  // the active selection to work, so we skip that fragile step entirely.
+  const range = savedRange;
   const frag = range.extractContents();
   stripStyleProp(frag, cssProp);
   const span = document.createElement('span');
@@ -511,8 +511,10 @@ function applyStyleToSelection(cssProp, cssValue) {
   span.appendChild(frag);
   range.insertNode(span);
   removeRedundantWrappers(span);
-  sel.removeAllRanges();
+  const sel = window.getSelection();
+  if (sel) sel.removeAllRanges();
   savedRange = null;
+  textInput.focus();
 }
 
 /* If reselecting the exact text of an earlier styled span, extraction can
@@ -549,14 +551,18 @@ applySelectionSizeBtn.addEventListener('click', () => {
   applyStyleToSelection('fontSize', selectionFontSize.value + 'px');
 });
 clearFormattingBtn.addEventListener('click', () => {
-  textInput.focus();
+  if (!savedRange || savedRange.collapsed) return;
+  const range = savedRange;
+  const frag = range.extractContents();
+  (function stripAll(node) {
+    if (node.nodeType === 1) node.removeAttribute('style');
+    Array.from(node.childNodes || []).forEach(stripAll);
+  })(frag);
+  range.insertNode(frag);
   const sel = window.getSelection();
-  if (savedRange) {
-    sel.removeAllRanges();
-    sel.addRange(savedRange);
-  }
-  if (!sel || sel.isCollapsed) return;
-  try { document.execCommand('removeFormat', false, null); } catch (e) {}
+  if (sel) sel.removeAllRanges();
+  savedRange = null;
+  textInput.focus();
 });
 
 if (!textInput.innerHTML.trim()) {
