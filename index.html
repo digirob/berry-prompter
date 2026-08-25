@@ -466,23 +466,25 @@ function saveSelectionRange() {
     savedRange = sel.getRangeAt(0).cloneRange();
   }
 }
-applySelectionColorBtn.addEventListener('click', () => {
-  textInput.focus();
-  const sel = window.getSelection();
-  if (savedRange) {
-    sel.removeAllRanges();
-    sel.addRange(savedRange);
+/* Recursively remove one inline style property from an element and all its
+   descendants (used so reapplying, say, size doesn't get blocked by an old
+   size left on a nested span from a previous edit — while leaving any other
+   property, like color, untouched on that same span). */
+function stripStyleProp(node, prop) {
+  if (node.nodeType === 1 && node.style) {
+    if (node.style.getPropertyValue(prop)) {
+      node.style.removeProperty(prop);
+      if (!node.getAttribute('style')) node.removeAttribute('style');
+    }
   }
-  if (!sel || sel.isCollapsed) return; // nothing selected, nothing to do
-  try {
-    document.execCommand('styleWithCSS', false, true);
-    document.execCommand('foreColor', false, selectionColor.value);
-  } catch (e) { /* not fatal */ }
-});
+  Array.from(node.childNodes || []).forEach((child) => stripStyleProp(child, prop));
+}
 
-/* Custom font size on a selection needs manual DOM wrapping — execCommand's
-   fontSize only supports 7 legacy fixed sizes, not arbitrary pixel values. */
-applySelectionSizeBtn.addEventListener('click', () => {
+/* Apply one style property to the current selection. Strips any pre-existing
+   value of just that property from inside the selection first, so color and
+   size can each be changed independently, any number of times, without
+   needing Clear Formatting in between. */
+function applyStyleToSelection(cssProp, cssValue) {
   textInput.focus();
   const sel = window.getSelection();
   if (savedRange) {
@@ -491,17 +493,49 @@ applySelectionSizeBtn.addEventListener('click', () => {
   }
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
+  const frag = range.extractContents();
+  stripStyleProp(frag, cssProp);
   const span = document.createElement('span');
-  span.style.fontSize = selectionFontSize.value + 'px';
-  try {
-    range.surroundContents(span);
-  } catch (e) {
-    // Selection spans multiple partial elements — extract and re-wrap instead
-    const content = range.extractContents();
-    span.appendChild(content);
-    range.insertNode(span);
-  }
+  span.style[cssProp] = cssValue;
+  span.appendChild(frag);
+  range.insertNode(span);
+  removeRedundantWrappers(span);
   sel.removeAllRanges();
+  savedRange = null;
+}
+
+/* If reselecting the exact text of an earlier styled span, extraction can
+   leave that old span behind as an empty shell with the new span planted
+   right back inside it — so the old style still wraps (and can mask) the
+   new one. Unwrap any such now-redundant single-child ancestor spans so
+   the new style actually takes over instead of just nesting deeper. */
+function removeRedundantWrappers(node) {
+  let current = node;
+  while (current.parentNode && current.parentNode !== textInput) {
+    const parent = current.parentNode;
+    parent.normalize(); // merges/removes empty text-node artifacts insertNode can leave behind
+    if (parent.tagName === 'SPAN' && parent.childNodes.length === 1) {
+      // The wrapper we're about to remove may carry a DIFFERENT property than
+      // the one we just changed (e.g. it has color, we just changed size) —
+      // carry that forward onto the new span so it isn't lost.
+      if (parent.style.color && !current.style.color) current.style.color = parent.style.color;
+      if (parent.style.fontSize && !current.style.fontSize) current.style.fontSize = parent.style.fontSize;
+      const grandparent = parent.parentNode;
+      grandparent.insertBefore(parent.firstChild, parent);
+      grandparent.removeChild(parent);
+      // current is now reparented under grandparent; keep walking up
+    } else {
+      break;
+    }
+  }
+}
+
+applySelectionColorBtn.addEventListener('click', () => {
+  applyStyleToSelection('color', selectionColor.value);
+});
+
+applySelectionSizeBtn.addEventListener('click', () => {
+  applyStyleToSelection('fontSize', selectionFontSize.value + 'px');
 });
 clearFormattingBtn.addEventListener('click', () => {
   textInput.focus();
