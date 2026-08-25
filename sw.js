@@ -1,7 +1,7 @@
 // Berry Professional Prompter — offline cache
 // Bump this version string whenever the app is updated, so returning
 // users get the new version instead of a stale cached copy.
-const CACHE_NAME = 'berry-prompter-v1';
+const CACHE_NAME = 'berry-prompter-v2';
 const ASSETS = [
   './',
   './index.html',
