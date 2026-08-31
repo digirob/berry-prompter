@@ -496,14 +496,17 @@ function stripStyleProp(node, prop) {
    size can each be changed independently, any number of times, without
    needing Clear Formatting in between. */
 function applyStyleToSelection(cssProp, cssValue) {
-  if (!savedRange || savedRange.collapsed) return;
-  // Work directly on the saved Range object rather than restoring it into
-  // window.getSelection() first — on iOS, tapping a button outside the
-  // editor collapses the live selection before our click handler even
-  // runs, and re-focusing + re-adding the range back is unreliable timing-
-  // wise. Range.extractContents()/insertNode() don't need to be part of
-  // the active selection to work, so we skip that fragile step entirely.
-  const range = savedRange;
+  // Now that the toolbar buttons no longer steal focus (see preventDefault
+  // below), the live selection should still be intact at click time — prefer
+  // it, and only fall back to the last-known saved range if it somehow isn't.
+  const liveSel = window.getSelection();
+  let range = null;
+  if (liveSel && liveSel.rangeCount > 0 && !liveSel.isCollapsed && textInput.contains(liveSel.getRangeAt(0).commonAncestorContainer)) {
+    range = liveSel.getRangeAt(0);
+  } else if (savedRange && !savedRange.collapsed) {
+    range = savedRange;
+  }
+  if (!range) return;
   const frag = range.extractContents();
   stripStyleProp(frag, cssProp);
   const span = document.createElement('span');
@@ -543,6 +546,16 @@ function removeRedundantWrappers(node) {
   }
 }
 
+/* The real fix for the iOS bug: tapping a button outside a contenteditable
+   normally shifts focus there and collapses the text selection before the
+   click handler even runs. Calling preventDefault() on the button's own
+   press event stops that focus shift from happening at all, so the
+   selection simply survives the tap — no recovery trick needed. */
+[applySelectionColorBtn, applySelectionSizeBtn, clearFormattingBtn].forEach((btn) => {
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
+  btn.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+});
+
 applySelectionColorBtn.addEventListener('click', () => {
   applyStyleToSelection('color', selectionColor.value);
 });
@@ -551,8 +564,14 @@ applySelectionSizeBtn.addEventListener('click', () => {
   applyStyleToSelection('fontSize', selectionFontSize.value + 'px');
 });
 clearFormattingBtn.addEventListener('click', () => {
-  if (!savedRange || savedRange.collapsed) return;
-  const range = savedRange;
+  const liveSel = window.getSelection();
+  let range = null;
+  if (liveSel && liveSel.rangeCount > 0 && !liveSel.isCollapsed && textInput.contains(liveSel.getRangeAt(0).commonAncestorContainer)) {
+    range = liveSel.getRangeAt(0);
+  } else if (savedRange && !savedRange.collapsed) {
+    range = savedRange;
+  }
+  if (!range) return;
   const frag = range.extractContents();
   (function stripAll(node) {
     if (node.nodeType === 1) node.removeAttribute('style');
