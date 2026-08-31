@@ -262,6 +262,7 @@
     <button class="small" id="applySelectionSizeBtn">Apply size</button>
     <button class="small secondary" id="clearFormattingBtn">Clear formatting</button>
   </div>
+  <div id="debugBar" style="padding:6px 14px; background:#1a0000; border-bottom:1px solid #400; font-size:11px; color:#f88; font-family:monospace; white-space:pre-wrap; max-height:120px; overflow-y:auto;"></div>
   <div id="textInput" contenteditable="true" data-placeholder="Paste or type your script here..."></div>
 </div>
 
@@ -469,6 +470,7 @@ document.addEventListener('selectionchange', () => {
   const range = sel.getRangeAt(0);
   if (textInput.contains(range.commonAncestorContainer)) {
     savedRange = range.cloneRange();
+    debugLog(`selectionchange captured: "${range.toString()}"`);
   }
 });
 function saveSelectionRange() {
@@ -495,18 +497,34 @@ function stripStyleProp(node, prop) {
    value of just that property from inside the selection first, so color and
    size can each be changed independently, any number of times, without
    needing Clear Formatting in between. */
+const debugBar = document.getElementById('debugBar');
+function debugLog(msg) {
+  const time = new Date().toLocaleTimeString();
+  debugBar.textContent = `[${time}] ${msg}\n` + debugBar.textContent;
+  // keep it from growing forever
+  const lines = debugBar.textContent.split('\n');
+  if (lines.length > 40) debugBar.textContent = lines.slice(0, 40).join('\n');
+}
+
 function applyStyleToSelection(cssProp, cssValue) {
+  debugLog(`applyStyleToSelection(${cssProp}, ${cssValue}) called`);
   // Now that the toolbar buttons no longer steal focus (see preventDefault
   // below), the live selection should still be intact at click time — prefer
   // it, and only fall back to the last-known saved range if it somehow isn't.
   const liveSel = window.getSelection();
   let range = null;
+  let source = 'none';
   if (liveSel && liveSel.rangeCount > 0 && !liveSel.isCollapsed && textInput.contains(liveSel.getRangeAt(0).commonAncestorContainer)) {
     range = liveSel.getRangeAt(0);
+    source = 'live selection';
   } else if (savedRange && !savedRange.collapsed) {
     range = savedRange;
+    source = 'savedRange fallback';
   }
-  if (!range) return;
+  debugLog(`range source: ${source}; liveSel collapsed=${liveSel ? liveSel.isCollapsed : 'no liveSel'}; savedRange=${savedRange ? (savedRange.collapsed ? 'collapsed' : 'valid') : 'null'}`);
+  if (!range) { debugLog('NO RANGE FOUND — aborting, nothing applied'); return; }
+  debugLog(`range text: "${range.toString()}"`);
+  const beforeHTML = textInput.innerHTML;
   const frag = range.extractContents();
   stripStyleProp(frag, cssProp);
   const span = document.createElement('span');
@@ -518,6 +536,10 @@ function applyStyleToSelection(cssProp, cssValue) {
   if (sel) sel.removeAllRanges();
   savedRange = null;
   textInput.focus();
+  const afterHTML = textInput.innerHTML;
+  debugLog(`before: ${beforeHTML.length > 150 ? beforeHTML.slice(0,150)+'…' : beforeHTML}`);
+  debugLog(`after:  ${afterHTML.length > 150 ? afterHTML.slice(0,150)+'…' : afterHTML}`);
+  debugLog(afterHTML === beforeHTML ? '⚠️ HTML DID NOT CHANGE' : '✓ HTML changed');
 }
 
 /* If reselecting the exact text of an earlier styled span, extraction can
